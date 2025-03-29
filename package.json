@@ -6,10 +6,11 @@
     "scripts": {
         "start": "node server.js",
         "dev": "nodemon server.js",
-        "build:css": "tailwindcss -i ./src/input.css -o ./public/css/style.css --minify",
-        "watch:css": "tailwindcss -i ./src/input.css -o ./public/css/style.css --watch"
+        "build:css": "./node_modules/.bin/tailwindcss -i ./src/input.css -o ./public/css/style.css --minify",
+        "watch:css": "./node_modules/.bin/tailwindcss -i ./src/input.css -o ./public/css/style.css --watch"
     },
     "dependencies": {
+        "@tailwindcss/cli": "^4.0.17",
         "dotenv": "^16.4.7",
         "express": "^5.0.1",
         "sqlite3": "^5.1.7",
