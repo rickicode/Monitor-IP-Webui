@@ -57,17 +57,33 @@ const rtCtx = document.getElementById('real-time-chart').getContext('2d');
 const realTimeChart = new Chart(rtCtx, {
   type: 'line',
   data: {
-    datasets: [{
-      label: 'Ping Time (ms)',
-      data: [],
-      borderColor: 'rgb(75, 192, 192)',
-      tension: 0.1,
-      fill: false
-    }]
+    datasets: [
+      {
+        label: 'Ping Time (ms)',
+        data: [],
+        borderColor: 'rgb(75, 192, 192)',
+        tension: 0.1,
+        fill: false
+      },
+      {
+        label: 'Failed Pings',
+        data: [],
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgb(255, 99, 132)',
+        pointStyle: 'crossRot',
+        pointRadius: 6,
+        fill: false,
+        showLine: false
+      }
+    ]
   },
   options: {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: {
+      intersect: false,
+      mode: 'nearest'
+    },
     scales: {
       x: {
         type: 'time',
@@ -96,18 +112,83 @@ const realTimeChart = new Chart(rtCtx, {
   }
 });
 
+// Set up hourly chart
+const hourlyCtx = document.getElementById('hourly-chart').getContext('2d');
+const hourlyChart = new Chart(hourlyCtx, {
+  type: 'line',
+  data: {
+    datasets: [
+      {
+        label: 'Average Ping Time (ms)',
+        data: [],
+        borderColor: 'rgb(75, 192, 192)',
+        tension: 0.1,
+        fill: false
+      },
+      {
+        label: 'Failed Pings',
+        data: [],
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgb(255, 99, 132)',
+        pointStyle: 'crossRot',
+        pointRadius: 6,
+        fill: false,
+        showLine: false
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'hour',
+          displayFormats: {
+            hour: 'MMM d, HH:mm'
+          }
+        },
+        title: {
+          display: true,
+          text: 'Time'
+        }
+      },
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'Avg Ping Time (ms)'
+        }
+      }
+    }
+  }
+});
+
 // Set up historical chart
 const histCtx = document.getElementById('historical-chart').getContext('2d');
 const historicalChart = new Chart(histCtx, {
   type: 'line',
   data: {
-    datasets: [{
-      label: 'Ping Time (ms)',
-      data: [],
-      borderColor: 'rgb(153, 102, 255)',
-      tension: 0.1,
-      fill: false
-    }]
+    datasets: [
+      {
+        label: 'Ping Time (ms)',
+        data: [],
+        borderColor: 'rgb(153, 102, 255)',
+        tension: 0.1,
+        fill: false
+      },
+      {
+        label: 'Failed Pings',
+        data: [],
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgb(255, 99, 132)',
+        pointStyle: 'crossRot',
+        pointRadius: 6,
+        fill: false,
+        showLine: false
+      }
+    ]
   },
   options: {
     responsive: true,
@@ -136,7 +217,6 @@ const historicalChart = new Chart(histCtx, {
     }
   }
 });
-
 
 // Handle timeout tracking
 function handleTimeoutTracking(pingData) {
@@ -275,23 +355,31 @@ function updateRealTimeChart(pingData) {
   const time = new Date(pingData.timestamp);
   
   // Add new data point
-  if (pingData.status === 'success') {
-    realtimeData.push({
-      x: time,
-      y: pingData.ping_time
-    });
-  } else {
-    // For failed pings, we could add a null or a very high value
-    // Here we choose to skip adding the point
-  }
+  realtimeData.push({
+    x: time,
+    y: pingData.status === 'success' ? pingData.ping_time : 0,
+    status: pingData.status
+  });
   
   // Limit the number of data points
   if (realtimeData.length > MAX_DATA_POINTS) {
     realtimeData.shift();
   }
   
-  // Update chart
-  realTimeChart.data.datasets[0].data = realtimeData;
+  // Separate successful and failed pings
+  const successData = realtimeData.map(point => ({
+    x: point.x,
+    y: point.status === 'success' ? point.y : null
+  }));
+  
+  const failedData = realtimeData.map(point => ({
+    x: point.x,
+    y: point.status === 'failed' ? point.y : null
+  }));
+  
+  // Update both datasets
+  realTimeChart.data.datasets[0].data = successData;
+  realTimeChart.data.datasets[1].data = failedData;
   realTimeChart.update();
 }
 
@@ -325,22 +413,82 @@ async function fetchHistoricalData() {
   }
 }
 
+// Calculate hourly averages from ping data
+function calculateHourlyAverages(data) {
+  const hourlyData = new Map();
+  
+  data.forEach(item => {
+    const hour = new Date(item.timestamp).setMinutes(0, 0, 0);
+    
+    if (!hourlyData.has(hour)) {
+      hourlyData.set(hour, {
+        successCount: 0,
+        totalTime: 0,
+        failedCount: 0
+      });
+    }
+    
+    const stats = hourlyData.get(hour);
+    if (item.status === 'success') {
+      stats.successCount++;
+      stats.totalTime += item.ping_time;
+    } else {
+      stats.failedCount++;
+    }
+  });
+  
+  const hourlyAverages = [];
+  const hourlyFailures = [];
+  
+  hourlyData.forEach((stats, hour) => {
+    const avgPing = stats.successCount > 0 ? stats.totalTime / stats.successCount : null;
+    const hourDate = new Date(hour);
+    
+    if (stats.successCount > 0) {
+      hourlyAverages.push({
+        x: hourDate,
+        y: avgPing
+      });
+    }
+    
+    if (stats.failedCount > 0) {
+      hourlyFailures.push({
+        x: hourDate,
+        y: 0,
+        failCount: stats.failedCount
+      });
+    }
+  });
+  
+  return { hourlyAverages, hourlyFailures };
+}
+
 // Update historical chart
 function updateHistoricalChart(data) {
   // Sort data by timestamp (oldest first)
   const sortedData = [...data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   
-  // Convert to chart format
-  const chartData = sortedData
-    .filter(item => item.status === 'success')
-    .map(item => ({
-      x: new Date(item.timestamp),
-      y: item.ping_time
-    }));
+  // Separate successful and failed pings
+  const successData = sortedData.map(item => ({
+    x: new Date(item.timestamp),
+    y: item.status === 'success' ? item.ping_time : null
+  }));
   
-  // Update chart
-  historicalChart.data.datasets[0].data = chartData;
+  const failedData = sortedData.map(item => ({
+    x: new Date(item.timestamp),
+    y: item.status === 'failed' ? 0 : null
+  }));
+  
+  // Update both datasets
+  historicalChart.data.datasets[0].data = successData;
+  historicalChart.data.datasets[1].data = failedData;
   historicalChart.update();
+  
+  // Calculate and update hourly averages
+  const { hourlyAverages, hourlyFailures } = calculateHourlyAverages(sortedData);
+  hourlyChart.data.datasets[0].data = hourlyAverages;
+  hourlyChart.data.datasets[1].data = hourlyFailures;
+  hourlyChart.update();
 }
 
 // Update history table
