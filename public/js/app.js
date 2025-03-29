@@ -1,7 +1,8 @@
 // public/js/app.js
 
 // Initialize WebSocket connection
-const socket = new WebSocket(`ws://${window.location.host}`);
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const socket = new WebSocket(`${protocol}//${window.location.host}`);
 
 // DOM elements
 const pingStatus = document.getElementById('ping-status');
