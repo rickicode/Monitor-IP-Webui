@@ -1,9 +1,5 @@
 // public/js/app.js
 
-// Initialize WebSocket connection
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const socket = new WebSocket(`${protocol}//${window.location.host}`);
-
 // DOM elements
 const pingStatus = document.getElementById('ping-status');
 const pingTime = document.getElementById('ping-time');
@@ -15,6 +11,31 @@ const nextPageBtn = document.getElementById('next-page');
 const startDateInput = document.getElementById('start-date');
 const endDateInput = document.getElementById('end-date');
 const filterBtn = document.getElementById('filter-btn');
+
+// Poll interval (matches server's ping interval)
+const POLL_INTERVAL = 1000;
+
+// Function to fetch current ping status
+async function fetchCurrentStatus() {
+  try {
+    const response = await fetch('/api/current-status');
+    const pingData = await response.json();
+    
+    // Update status display
+    updatePingStatus(pingData);
+    
+    // Update real-time chart
+    updateRealTimeChart(pingData);
+
+    // Track timeouts
+    handleTimeoutTracking(pingData);
+  } catch (error) {
+    console.error('Error fetching status:', error);
+  }
+}
+
+// Start polling
+setInterval(fetchCurrentStatus, POLL_INTERVAL);
 
 // State management
 let currentPage = 1;
@@ -116,34 +137,6 @@ const historicalChart = new Chart(histCtx, {
   }
 });
 
-// WebSocket event handlers
-socket.onopen = () => {
-  console.log('Connected to server');
-};
-
-socket.onmessage = (event) => {
-  const pingData = JSON.parse(event.data);
-  
-  // Update status display
-  updatePingStatus(pingData);
-  
-  // Update real-time chart
-  updateRealTimeChart(pingData);
-
-  // Track timeouts
-  handleTimeoutTracking(pingData);
-};
-
-socket.onclose = () => {
-  console.log('Disconnected from server');
-  
-  // If there's an active timeout when connection closes, end it
-  if (timeoutStart !== null) {
-    const now = new Date();
-    addTimeoutRange(timeoutStart, now);
-    timeoutStart = null;
-  }
-};
 
 // Handle timeout tracking
 function handleTimeoutTracking(pingData) {

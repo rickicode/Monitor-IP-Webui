@@ -11,8 +11,6 @@ const http = require('http');
 const net = require('net');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const WebSocket = require('ws');
-
 // Configuration from environment variables
 const PORT = process.env.APP_PORT || 3000;
 const IP_TO_MONITOR = process.env.MIKROTIK_IP || '192.168.90.3';
@@ -22,7 +20,9 @@ const MAX_HISTORY_PER_PAGE = 100;
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Store latest ping result
+let latestPingResult = null;
 
 // Set up SQLite database
 const db = new sqlite3.Database('./ping_monitor.db');
@@ -129,13 +129,9 @@ app.get('/api/ping-data', (req, res) => {
   });
 });
 
-// WebSocket for real-time updates
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-  
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
+// API endpoint for current ping status
+app.get('/api/current-status', (req, res) => {
+  res.json(latestPingResult || { status: 'initializing' });
 });
 
 // Function to ping using TCP connection
@@ -181,18 +177,12 @@ function pingIP() {
     stmt.run(pingTime, status);
     stmt.finalize();
     
-    // Send result to all connected clients
-    const pingData = {
+    // Update latest ping result
+    latestPingResult = {
       timestamp: formatLocalDateTime(new Date()),
       ping_time: pingTime,
       status: status
     };
-    
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(pingData));
-      }
-    });
   }
 
   // Attempt to connect
