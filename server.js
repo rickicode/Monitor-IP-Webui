@@ -11,18 +11,48 @@ const http = require('http');
 const net = require('net');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const axios = require('axios');
 // Configuration from environment variables
 const PORT = process.env.APP_PORT || 3000;
 const IP_TO_MONITOR = process.env.MIKROTIK_IP || '192.168.90.3';
 const PING_INTERVAL = parseInt(process.env.PING_INTERVAL || '1000');
 const MAX_HISTORY_PER_PAGE = 100;
+const NOTIFICATION_PHONE = process.env.NOTIFICATION_PHONE;
 
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
 
-// Store latest ping result
+// Store latest ping result and failure counter
 let latestPingResult = null;
+let consecutiveFailures = 0;
+let lastNotificationTime = 0;
+
+// Function to send WhatsApp notification
+async function sendWhatsAppNotification() {
+  if (!NOTIFICATION_PHONE) {
+    console.log('WhatsApp notification skipped: No phone number configured');
+    return;
+  }
+
+  // Prevent notification spam by checking last notification time (minimum 5 minutes between notifications)
+  const now = Date.now();
+  if (now - lastNotificationTime < 5 * 60 * 1000) {
+    console.log('WhatsApp notification skipped: Too soon since last notification');
+    return;
+  }
+
+  try {
+    const message = `⚠️ Alert: Mikrotik connection failed 10 consecutive times\n\nIP: ${IP_TO_MONITOR}\nTime: ${formatLocalDateTime(new Date())}`;
+    const url = `https://wa.nux.my.id/api/sendWA?to=${NOTIFICATION_PHONE}&msg=${encodeURIComponent(message)}&secret=32fe56e1e208f41a6dd39c47f0eef976`;
+    
+    await axios.get(url);
+    console.log('WhatsApp notification sent successfully');
+    lastNotificationTime = now;
+  } catch (error) {
+    console.error('Failed to send WhatsApp notification:', error.message);
+  }
+}
 
 // Set up SQLite database
 const db = new sqlite3.Database('./ping_monitor.db');
@@ -150,6 +180,7 @@ function pingIP() {
     const diff = process.hrtime(startTime);
     pingTime = Math.round((diff[0] * 1000 + diff[1] / 1000000) * 100) / 100; // Convert to milliseconds with 2 decimal places
     status = 'success';
+    consecutiveFailures = 0; // Reset failure counter on success
     socket.end();
   });
 
@@ -183,6 +214,14 @@ function pingIP() {
       ping_time: pingTime,
       status: status
     };
+
+    // Handle consecutive failures
+    if (status === 'failed') {
+      consecutiveFailures++;
+      if (consecutiveFailures >= 10) {
+        sendWhatsAppNotification();
+      }
+    }
   }
 
   // Attempt to connect
