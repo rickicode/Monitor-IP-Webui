@@ -384,6 +384,31 @@ function updateRealTimeChart(pingData) {
 }
 
 // Fetch historical data
+// Fetch last 24 hours of data for hourly averages
+async function fetchHourlyData() {
+  try {
+    const endDate = new Date();
+    const startDate = new Date(endDate);
+    startDate.setHours(endDate.getHours() - 23);
+
+    const response = await fetch(`/api/ping-data?startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}&limit=1440`);
+    const data = await response.json();
+    
+    if (data.error) {
+      console.error('Error fetching hourly data:', data.error);
+      return;
+    }
+    
+    const { hourlyAverages, hourlyFailures } = calculateHourlyAverages(data.data);
+    hourlyChart.data.datasets[0].data = hourlyAverages;
+    hourlyChart.data.datasets[1].data = hourlyFailures;
+    hourlyChart.update();
+  } catch (error) {
+    console.error('Error fetching hourly data:', error);
+  }
+}
+
+// Fetch historical data for detailed view with filters
 async function fetchHistoricalData() {
   let url = `/api/ping-data?page=${currentPage}`;
   
@@ -404,7 +429,25 @@ async function fetchHistoricalData() {
       return;
     }
     
-    updateHistoricalChart(data.data);
+    // Update detailed view with filtered data
+    const sortedData = [...data.data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    // Update historical chart (detailed view)
+    const successData = sortedData.map(item => ({
+      x: new Date(item.timestamp),
+      y: item.status === 'success' ? item.ping_time : null
+    }));
+    
+    const failedData = sortedData.map(item => ({
+      x: new Date(item.timestamp),
+      y: item.status === 'failed' ? 0 : null
+    }));
+    
+    historicalChart.data.datasets[0].data = successData;
+    historicalChart.data.datasets[1].data = failedData;
+    historicalChart.update();
+    
+    // Update table and pagination
     updateHistoryTable(data.data);
     updatePagination(data.pagination);
     
@@ -417,43 +460,56 @@ async function fetchHistoricalData() {
 function calculateHourlyAverages(data) {
   const hourlyData = new Map();
   
+  // Get the latest timestamp to determine the current hour
+  const latestTimestamp = Math.max(...data.map(item => new Date(item.timestamp).getTime()));
+  const currentDate = new Date(latestTimestamp);
+  
+  // Initialize all 24 hours with empty data
+  for (let i = 23; i >= 0; i--) {
+    const hourDate = new Date(currentDate);
+    hourDate.setHours(currentDate.getHours() - i, 0, 0, 0);
+    hourlyData.set(hourDate.getTime(), {
+      successCount: 0,
+      totalTime: 0,
+      failedCount: 0,
+      hour: hourDate
+    });
+  }
+  
+  // Process the actual data
   data.forEach(item => {
-    const hour = new Date(item.timestamp).setMinutes(0, 0, 0);
+    const itemDate = new Date(item.timestamp);
+    // Check if this timestamp falls within our 24-hour window
+    const hourStart = new Date(itemDate);
+    hourStart.setMinutes(0, 0, 0);
     
-    if (!hourlyData.has(hour)) {
-      hourlyData.set(hour, {
-        successCount: 0,
-        totalTime: 0,
-        failedCount: 0
-      });
-    }
-    
-    const stats = hourlyData.get(hour);
-    if (item.status === 'success') {
-      stats.successCount++;
-      stats.totalTime += item.ping_time;
-    } else {
-      stats.failedCount++;
+    if (hourlyData.has(hourStart.getTime())) {
+      const stats = hourlyData.get(hourStart.getTime());
+      if (item.status === 'success') {
+        stats.successCount++;
+        stats.totalTime += item.ping_time;
+      } else {
+        stats.failedCount++;
+      }
     }
   });
   
   const hourlyAverages = [];
   const hourlyFailures = [];
   
-  hourlyData.forEach((stats, hour) => {
+  // Process all hours in chronological order
+  Array.from(hourlyData.values()).forEach(stats => {
     const avgPing = stats.successCount > 0 ? stats.totalTime / stats.successCount : null;
-    const hourDate = new Date(hour);
     
-    if (stats.successCount > 0) {
-      hourlyAverages.push({
-        x: hourDate,
-        y: avgPing
-      });
-    }
+    // Always push a data point, even if there's no data (will show as gap in chart)
+    hourlyAverages.push({
+      x: stats.hour,
+      y: avgPing
+    });
     
     if (stats.failedCount > 0) {
       hourlyFailures.push({
-        x: hourDate,
+        x: stats.hour,
         y: 0,
         failCount: stats.failedCount
       });
@@ -463,7 +519,7 @@ function calculateHourlyAverages(data) {
   return { hourlyAverages, hourlyFailures };
 }
 
-// Update historical chart
+// Update historical chart (detailed view)
 function updateHistoricalChart(data) {
   // Sort data by timestamp (oldest first)
   const sortedData = [...data].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -483,12 +539,6 @@ function updateHistoricalChart(data) {
   historicalChart.data.datasets[0].data = successData;
   historicalChart.data.datasets[1].data = failedData;
   historicalChart.update();
-  
-  // Calculate and update hourly averages
-  const { hourlyAverages, hourlyFailures } = calculateHourlyAverages(sortedData);
-  hourlyChart.data.datasets[0].data = hourlyAverages;
-  hourlyChart.data.datasets[1].data = hourlyFailures;
-  hourlyChart.update();
 }
 
 // Update history table
@@ -558,7 +608,12 @@ filterBtn.addEventListener('click', () => {
   fetchHistoricalData();
 });
 
-// Initialize
+// Initialize and set up periodic updates
 document.addEventListener('DOMContentLoaded', () => {
+  // Initial data fetch
   fetchHistoricalData();
+  fetchHourlyData();
+  
+  // Update hourly data every 5 minutes
+  setInterval(fetchHourlyData, 5 * 60 * 1000);
 });
