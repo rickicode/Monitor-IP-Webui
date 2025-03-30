@@ -42,6 +42,7 @@ let currentPage = 1;
 let totalPages = 1;
 let filterStartDate = null;
 let filterEndDate = null;
+let filterStatus = 'all';
 
 // Timeout tracking state
 let timeoutStart = null;
@@ -410,14 +411,33 @@ async function fetchHourlyData() {
 
 // Fetch historical data for detailed view with filters
 async function fetchHistoricalData() {
-  let url = `/api/ping-data?page=${currentPage}`;
-  
-  if (filterStartDate) {
-    url += `&startDate=${encodeURIComponent(filterStartDate.toISOString())}`;
+  let url = `/api/ping-data`;
+  let params = [];
+
+  // If date range is specified, use pagination and date filters
+  if (filterStartDate || filterEndDate) {
+    params.push(`page=${currentPage}`);
+    
+    if (filterStartDate) {
+      params.push(`startDate=${encodeURIComponent(filterStartDate.toISOString())}`);
+    }
+    
+    if (filterEndDate) {
+      params.push(`endDate=${encodeURIComponent(filterEndDate.toISOString())}`);
+    }
+  } else {
+    // If only status filter is applied, get all data without pagination
+    params.push('limit=0'); // 0 means no limit, get all records
   }
   
-  if (filterEndDate) {
-    url += `&endDate=${encodeURIComponent(filterEndDate.toISOString())}`;
+  // Apply status filter if not 'all'
+  if (filterStatus !== 'all') {
+    params.push(`status=${filterStatus}`);
+  }
+  
+  // Add params to URL
+  if (params.length > 0) {
+    url += '?' + params.join('&');
   }
   
   try {
@@ -546,8 +566,14 @@ function updateHistoryTable(data) {
   // Clear existing rows
   historyTableBody.innerHTML = '';
   
+  // Filter data based on selected status if needed
+  let displayData = data;
+  if (filterStatus !== 'all') {
+    displayData = data.filter(item => item.status === filterStatus);
+  }
+  
   // Add new rows
-  data.forEach(item => {
+  displayData.forEach(item => {
     const row = document.createElement('tr');
     
     // Format timestamp
@@ -566,13 +592,27 @@ function updateHistoryTable(data) {
     
     historyTableBody.appendChild(row);
   });
+  
+  // Update pagination info for filtered data
+  if (!data.pagination || data.pagination.limit === 0) {
+    paginationInfo.textContent = `Showing all ${displayData.length} entries`;
+  }
 }
 
 // Update pagination controls
 function updatePagination(pagination) {
+  // Handle case when pagination is not used (all data returned)
+  if (!pagination || pagination.limit === 0) {
+    totalPages = 1;
+    const totalRecords = document.getElementById('history-table-body').childElementCount;
+    paginationInfo.textContent = `Showing all ${totalRecords} entries`;
+    prevPageBtn.disabled = true;
+    nextPageBtn.disabled = true;
+    return;
+  }
+
+  // Regular pagination
   totalPages = pagination.pages;
-  
-  // Update pagination info text
   const start = (pagination.page - 1) * pagination.limit + 1;
   const end = Math.min(pagination.page * pagination.limit, pagination.total);
   paginationInfo.textContent = `Showing ${start}-${end} of ${pagination.total} entries`;
@@ -604,6 +644,7 @@ filterBtn.addEventListener('click', () => {
   // Get filter values
   filterStartDate = startDateInput.value ? new Date(startDateInput.value) : null;
   filterEndDate = endDateInput.value ? new Date(endDateInput.value) : null;
+  filterStatus = document.getElementById('status-filter').value;
   
   fetchHistoricalData();
 });

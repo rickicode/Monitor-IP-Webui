@@ -43,7 +43,12 @@ async function sendWhatsAppNotification() {
   }
 
   try {
-    const message = `⚠️ Alert: Mikrotik connection failed 10 consecutive times\n\nIP: ${IP_TO_MONITOR}\nTime: ${formatLocalDateTime(new Date())}`;
+    // Fetch server IP and ISP information from an external API
+    const ipInfoResponse = await axios.get('https://ipinfo.io/json');
+    const serverIP = ipInfoResponse.data.ip || 'Unknown IP';
+    const ispName = ipInfoResponse.data.org || 'Unknown ISP';
+
+    const message = `⚠️ Alert: Mikrotik connection failed 10 consecutive times\n\nIP: ${IP_TO_MONITOR}\nTime: ${formatLocalDateTime(new Date())}\nServer IP: ${serverIP}\nISP: ${ispName}`;
     const url = `https://wa.nux.my.id/api/sendWA?to=${NOTIFICATION_PHONE}&msg=${encodeURIComponent(message)}&secret=32fe56e1e208f41a6dd39c47f0eef976`;
     
     await axios.get(url);
@@ -106,16 +111,28 @@ app.get('/api/ping-data', (req, res) => {
   
   let query = 'SELECT * FROM ping_results';
   const params = [];
+  let conditions = [];
   
   if (startDate && endDate) {
-    query += ' WHERE timestamp BETWEEN ? AND ?';
+    conditions.push('timestamp BETWEEN ? AND ?');
     params.push(formatLocalDateTime(startDate), formatLocalDateTime(endDate));
   } else if (startDate) {
-    query += ' WHERE timestamp >= ?';
+    conditions.push('timestamp >= ?');
     params.push(formatLocalDateTime(startDate));
   } else if (endDate) {
-    query += ' WHERE timestamp <= ?';
+    conditions.push('timestamp <= ?');
     params.push(formatLocalDateTime(endDate));
+  }
+  
+  // Add status filter
+  if (req.query.status) {
+    conditions.push('status = ?');
+    params.push(req.query.status);
+  }
+  
+  // Add WHERE clause if there are conditions
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
   }
   
   query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
@@ -128,17 +145,12 @@ app.get('/api/ping-data', (req, res) => {
     
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as count FROM ping_results';
-    const countParams = [];
+    // Use only the filter params, not the limit/offset params
+    const countParams = params.slice(0, -2); // Remove limit and offset params
     
-    if (startDate && endDate) {
-      countQuery += ' WHERE timestamp BETWEEN ? AND ?';
-      countParams.push(formatLocalDateTime(startDate), formatLocalDateTime(endDate));
-    } else if (startDate) {
-      countQuery += ' WHERE timestamp >= ?';
-      countParams.push(formatLocalDateTime(startDate));
-    } else if (endDate) {
-      countQuery += ' WHERE timestamp <= ?';
-      countParams.push(formatLocalDateTime(endDate));
+    // Add WHERE clause with same conditions for count query
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.join(' AND ');
     }
     
     db.get(countQuery, countParams, (err, countRow) => {
