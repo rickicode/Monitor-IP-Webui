@@ -15,7 +15,10 @@
 <body class="bg-gray-100 min-h-screen">
   <div class="container mx-auto px-4 py-8">
     <header class="mb-8">
-      <h1 id="app-title" class="text-3xl font-bold text-gray-800">Loading...</h1>
+      <div class="flex justify-between items-center mb-2">
+        <h1 id="app-title" class="text-3xl font-bold text-gray-800">Loading...</h1>
+        <div id="current-time" class="text-2xl text-gray-700 font-medium"></div>
+      </div>
       <p class="text-gray-600">IP: <span id="monitored-ip">Loading...</span></p>
     </header>
 
@@ -123,11 +126,29 @@
     fetch('/api/config')
       .then(response => response.json())
       .then(config => {
-        document.getElementById('page-title').textContent = config.title;
+        document.getElementById('page-title').textContent = config.title+ ' | Powered by NETQ.ME';
         document.getElementById('app-title').textContent = config.title;
         document.getElementById('monitored-ip').textContent = config.ip;
         window.APP_CONFIG = config; // Store config for app.js
       });
+
+    // Update clock every second
+    function updateClock() {
+      const now = new Date();
+      const timeString = now.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      document.getElementById('current-time').textContent = timeString;
+    }
+    
+    // Initial update
+    updateClock();
+    
+    // Update every second
+    setInterval(updateClock, 1000);
   </script>
   <script src="./js/app.js"></script>
 </body>
