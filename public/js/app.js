@@ -403,9 +403,9 @@ async function fetchHistoricalData() {
   let url = `/api/ping-data`;
   let params = [];
 
-  // If date range is specified, use pagination and date filters
-  if (filterStartDate || filterEndDate) {
+    // Use pagination with 100 records per page by default
     params.push(`page=${currentPage}`);
+    params.push('limit=100');
     
     if (filterStartDate) {
       params.push(`startDate=${encodeURIComponent(filterStartDate.toISOString())}`);
@@ -414,10 +414,6 @@ async function fetchHistoricalData() {
     if (filterEndDate) {
       params.push(`endDate=${encodeURIComponent(filterEndDate.toISOString())}`);
     }
-  } else {
-    // If only status filter is applied, get all data without pagination
-    params.push('limit=0'); // 0 means no limit, get all records
-  }
   
   // Apply status filter if not 'all'
   if (filterStatus !== 'all') {

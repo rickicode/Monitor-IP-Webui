@@ -128,16 +128,20 @@ app.get('/api/config', (req, res) => {
 });
 
 app.get('/api/ping-data', (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || MAX_HISTORY_PER_PAGE;
-  const offset = (page - 1) * limit;
-  
-  const startDate = req.query.startDate ? new Date(req.query.startDate) : null;
-  const endDate = req.query.endDate ? new Date(req.query.endDate) : null;
-  
   let query = 'SELECT * FROM ping_results';
   const params = [];
   let conditions = [];
+  
+  const page = parseInt(req.query.page) || 1;
+  const requestedLimit = req.query.limit !== undefined ? parseInt(req.query.limit) : MAX_HISTORY_PER_PAGE;
+  
+  // If limit is 0 or 'all', return all records without pagination
+  const usePagination = requestedLimit !== 0;
+  const limit = usePagination ? requestedLimit : null;
+  const offset = usePagination ? (page - 1) * limit : 0;
+  
+  const startDate = req.query.startDate ? new Date(req.query.startDate) : null;
+  const endDate = req.query.endDate ? new Date(req.query.endDate) : null;
   
   if (startDate && endDate) {
     conditions.push('timestamp BETWEEN ? AND ?');
@@ -161,8 +165,14 @@ app.get('/api/ping-data', (req, res) => {
     query += ' WHERE ' + conditions.join(' AND ');
   }
   
-  query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
-  params.push(limit, offset);
+  // Add ORDER BY before any LIMIT
+  query += ' ORDER BY timestamp DESC';
+  
+  // Add LIMIT and OFFSET only if pagination is used
+  if (usePagination) {
+    query += ' LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+  }
   
   db.all(query, params, (err, rows) => {
     if (err) {
@@ -170,30 +180,36 @@ app.get('/api/ping-data', (req, res) => {
     }
     
     // Get total count for pagination
-    let countQuery = 'SELECT COUNT(*) as count FROM ping_results';
-    // Use only the filter params, not the limit/offset params
-    const countParams = params.slice(0, -2); // Remove limit and offset params
-    
-    // Add WHERE clause with same conditions for count query
-    if (conditions.length > 0) {
-      countQuery += ' WHERE ' + conditions.join(' AND ');
-    }
-    
-    db.get(countQuery, countParams, (err, countRow) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
+    if (!usePagination) {
+      // If not using pagination, return all data without pagination info
+      res.json({
+        data: rows
+      });
+    } else {
+      // If using pagination, get total count and return pagination info
+      let countQuery = 'SELECT COUNT(*) as count FROM ping_results';
+      const countParams = params.slice(0, -2); // Remove limit and offset params
+      
+      if (conditions.length > 0) {
+        countQuery += ' WHERE ' + conditions.join(' AND ');
       }
       
-      res.json({
-        data: rows,
-        pagination: {
-          total: countRow.count,
-          page,
-          limit,
-          pages: Math.ceil(countRow.count / limit)
+      db.get(countQuery, countParams, (err, countRow) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
         }
+        
+        res.json({
+          data: rows,
+          pagination: {
+            total: countRow.count,
+            page,
+            limit,
+            pages: Math.ceil(countRow.count / limit)
+          }
+        });
       });
-    });
+    }
   });
 });
 
