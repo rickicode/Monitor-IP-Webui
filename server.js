@@ -62,6 +62,21 @@ async function sendWhatsAppNotification() {
 // Set up SQLite database
 const db = new sqlite3.Database('./ping_monitor.db');
 
+// Function to clean up old records
+function cleanupOldRecords() {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  
+  const query = 'DELETE FROM ping_results WHERE timestamp < ?';
+  db.run(query, [formatLocalDateTime(sevenDaysAgo)], function(err) {
+    if (err) {
+      console.error('Error cleaning up old records:', err);
+    } else {
+      console.log(`Cleaned up ${this.changes} records older than 7 days`);
+    }
+  });
+}
+
 // Create tables if they don't exist
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS ping_results (
@@ -70,7 +85,18 @@ db.serialize(() => {
     ping_time REAL,
     status TEXT
   )`);
+  
+  // Initial cleanup
+  cleanupOldRecords();
 });
+
+// Schedule cleanup to run daily at midnight
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 0 && now.getMinutes() === 0) {
+    cleanupOldRecords();
+  }
+}, 60 * 1000); // Check every minute
 
 // Helper function to format date in local timezone
 function formatLocalDateTime(date) {

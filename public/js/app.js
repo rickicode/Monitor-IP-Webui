@@ -390,9 +390,9 @@ async function fetchHourlyData() {
   try {
     const endDate = new Date();
     const startDate = new Date(endDate);
-    startDate.setHours(endDate.getHours() - 23);
+    startDate.setHours(endDate.getHours() - 24, 0, 0, 0); // Set to start of the hour 24 hours ago
 
-    const response = await fetch(`/api/ping-data?startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}&limit=1440`);
+    const response = await fetch(`/api/ping-data?startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}&limit=2880`); // 2 days of data for better calculation
     const data = await response.json();
     
     if (data.error) {
