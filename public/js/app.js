@@ -119,7 +119,7 @@ const hourlyChart = new Chart(hourlyCtx, {
   type: 'line',
   data: {
     datasets: [{
-      label: 'Average Ping Time (ms)',
+      label: 'Ping Time (ms)',
       data: [],
       borderColor: 'rgb(75, 192, 192)',
       tension: 0.1,
@@ -378,9 +378,11 @@ async function fetchHourlyData() {
   try {
     const endDate = new Date();
     const startDate = new Date(endDate);
-    startDate.setHours(endDate.getHours() - 24, 0, 0, 0); // Set to start of the hour 24 hours ago
+    startDate.setHours(endDate.getHours() - 24);
+    startDate.setMinutes(0, 0, 0); // Set to start of the hour
 
-    const response = await fetch(`/api/ping-data?startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}&limit=2880`); // 2 days of data for better calculation
+    // Get all data for the last 24 hours without status filter
+    const response = await fetch(`/api/ping-data?startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}&limit=0`);
     const data = await response.json();
     
     if (data.error) {
@@ -388,8 +390,8 @@ async function fetchHourlyData() {
       return;
     }
     
-    const hourlyAverages = calculateHourlyAverages(data.data);
-    hourlyChart.data.datasets[0].data = hourlyAverages;
+    const hourlyData = calculateHourlyData(data.data);
+    hourlyChart.data.datasets[0].data = hourlyData;
     hourlyChart.update();
   } catch (error) {
     console.error('Error fetching hourly data:', error);
@@ -463,53 +465,50 @@ async function fetchHistoricalData() {
   }
 }
 
-// Calculate hourly averages from ping data
-function calculateHourlyAverages(data) {
+// Calculate hourly data
+function calculateHourlyData(data) {
   const hourlyData = new Map();
-  const hourlyAverages = [];
+  const result = [];
   
-  // Get the current time and create a 24-hour window
-  const currentDate = new Date();
-  
-  // Initialize all 24 hours with empty data
-  for (let i = 23; i >= 0; i--) {
-    const hourDate = new Date(currentDate);
-    hourDate.setHours(currentDate.getHours() - i, 0, 0, 0);
+  // Create exact 24-hour window from now
+  const now = new Date();
+  const baseDate = new Date(now);
+  baseDate.setMinutes(0, 0, 0); // Start at current hour
+
+  // Initialize 24 hours with empty data
+  for (let hour = -23; hour <= 0; hour++) {
+    const hourDate = new Date(baseDate);
+    hourDate.setHours(baseDate.getHours() + hour);
     hourlyData.set(hourDate.getTime(), {
-      successCount: 0,
+      count: 0,
       totalTime: 0,
       hour: hourDate
     });
   }
   
-  // Process only successful pings within the last 24 hours
+  // Process all pings
   data.forEach(item => {
-    if (item.status === 'success') {
-      const itemDate = new Date(item.timestamp);
-      // Check if this timestamp falls within our 24-hour window
-      const hourStart = new Date(itemDate);
-      hourStart.setMinutes(0, 0, 0);
-      
-      if (hourlyData.has(hourStart.getTime())) {
-        const stats = hourlyData.get(hourStart.getTime());
-        stats.successCount++;
-        stats.totalTime += item.ping_time;
-      }
+    const itemDate = new Date(item.timestamp);
+    const hourStart = new Date(itemDate);
+    hourStart.setMinutes(0, 0, 0);
+    
+    if (hourlyData.has(hourStart.getTime())) {
+      const stats = hourlyData.get(hourStart.getTime());
+      stats.count++;
+      stats.totalTime += item.status === 'success' ? item.ping_time : 0;
     }
   });
   
   // Process all hours in chronological order
   Array.from(hourlyData.values()).forEach(stats => {
-    const avgPing = stats.successCount > 0 ? stats.totalTime / stats.successCount : null;
-    
-    // Always push a data point, even if there's no data (will show as gap in chart)
-    hourlyAverages.push({
+    const avgPing = stats.count > 0 ? stats.totalTime / stats.count : 0;
+    result.push({
       x: stats.hour,
       y: avgPing
     });
   });
   
-  return hourlyAverages;
+  return result;
 }
 
 // Update historical chart (detailed view)
