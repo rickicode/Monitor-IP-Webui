@@ -118,25 +118,13 @@ const hourlyCtx = document.getElementById('hourly-chart').getContext('2d');
 const hourlyChart = new Chart(hourlyCtx, {
   type: 'line',
   data: {
-    datasets: [
-      {
-        label: 'Average Ping Time (ms)',
-        data: [],
-        borderColor: 'rgb(75, 192, 192)',
-        tension: 0.1,
-        fill: false
-      },
-      {
-        label: 'Failed Pings',
-        data: [],
-        borderColor: 'rgb(255, 99, 132)',
-        backgroundColor: 'rgb(255, 99, 132)',
-        pointStyle: 'crossRot',
-        pointRadius: 6,
-        fill: false,
-        showLine: false
-      }
-    ]
+    datasets: [{
+      label: 'Average Ping Time (ms)',
+      data: [],
+      borderColor: 'rgb(75, 192, 192)',
+      tension: 0.1,
+      fill: false
+    }]
   },
   options: {
     responsive: true,
@@ -400,9 +388,8 @@ async function fetchHourlyData() {
       return;
     }
     
-    const { hourlyAverages, hourlyFailures } = calculateHourlyAverages(data.data);
+    const hourlyAverages = calculateHourlyAverages(data.data);
     hourlyChart.data.datasets[0].data = hourlyAverages;
-    hourlyChart.data.datasets[1].data = hourlyFailures;
     hourlyChart.update();
   } catch (error) {
     console.error('Error fetching hourly data:', error);
@@ -479,10 +466,10 @@ async function fetchHistoricalData() {
 // Calculate hourly averages from ping data
 function calculateHourlyAverages(data) {
   const hourlyData = new Map();
+  const hourlyAverages = [];
   
-  // Get the latest timestamp to determine the current hour
-  const latestTimestamp = Math.max(...data.map(item => new Date(item.timestamp).getTime()));
-  const currentDate = new Date(latestTimestamp);
+  // Get the current time and create a 24-hour window
+  const currentDate = new Date();
   
   // Initialize all 24 hours with empty data
   for (let i = 23; i >= 0; i--) {
@@ -491,31 +478,25 @@ function calculateHourlyAverages(data) {
     hourlyData.set(hourDate.getTime(), {
       successCount: 0,
       totalTime: 0,
-      failedCount: 0,
       hour: hourDate
     });
   }
   
-  // Process the actual data
+  // Process only successful pings within the last 24 hours
   data.forEach(item => {
-    const itemDate = new Date(item.timestamp);
-    // Check if this timestamp falls within our 24-hour window
-    const hourStart = new Date(itemDate);
-    hourStart.setMinutes(0, 0, 0);
-    
-    if (hourlyData.has(hourStart.getTime())) {
-      const stats = hourlyData.get(hourStart.getTime());
-      if (item.status === 'success') {
+    if (item.status === 'success') {
+      const itemDate = new Date(item.timestamp);
+      // Check if this timestamp falls within our 24-hour window
+      const hourStart = new Date(itemDate);
+      hourStart.setMinutes(0, 0, 0);
+      
+      if (hourlyData.has(hourStart.getTime())) {
+        const stats = hourlyData.get(hourStart.getTime());
         stats.successCount++;
         stats.totalTime += item.ping_time;
-      } else {
-        stats.failedCount++;
       }
     }
   });
-  
-  const hourlyAverages = [];
-  const hourlyFailures = [];
   
   // Process all hours in chronological order
   Array.from(hourlyData.values()).forEach(stats => {
@@ -526,17 +507,9 @@ function calculateHourlyAverages(data) {
       x: stats.hour,
       y: avgPing
     });
-    
-    if (stats.failedCount > 0) {
-      hourlyFailures.push({
-        x: stats.hour,
-        y: 0,
-        failCount: stats.failedCount
-      });
-    }
   });
   
-  return { hourlyAverages, hourlyFailures };
+  return hourlyAverages;
 }
 
 // Update historical chart (detailed view)
